@@ -4,7 +4,7 @@ Inspired by [elfcat](https://github.com/randomstuff/elfcat) to dump program sect
 
 PoC:
 ```
-./elfdump /bin/bash .interp
-2F 6C 69 62 36 34 2F 6C  64 2D 6C 69 6E 75 78 2D  |  /lib64/ld-linux- 
-78 38 36 2D 36 34 2E 73  6F 2E 32 00              |  x86-64.so.2.
+./elfdump /bin/bash .interp | xxd
+00000000: 2f6c 6962 3634 2f6c 642d 6c69 6e75 782d  /lib64/ld-linux-
+00000010: 7838 362d 3634 2e73 6f2e 3200            x86-64.so.2.
 ```

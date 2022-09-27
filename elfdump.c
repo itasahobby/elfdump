@@ -1,132 +1,98 @@
-#include <err.h>
+#include <elf.h>
 #include <fcntl.h>
 #include <gelf.h>
 #include <libelf.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <sysexits.h>
 #include <unistd.h>
 
-void dump_hex(const void* data, size_t size) {
-	char ascii[17];
-	size_t i, j;
-	ascii[16] = '\0';
-	for (i = 0; i < size; ++i) {
-		printf("%02X ", ((unsigned char*)data)[i]);
-		if (((unsigned char*)data)[i] >= ' ' && ((unsigned char*)data)[i] <= '~') {
-			ascii[i % 16] = ((unsigned char*)data)[i];
-		} else {
-			ascii[i % 16] = '.';
-		}
-		if ((i+1) % 8 == 0 || i+1 == size) {
-			printf(" ");
-			if ((i+1) % 16 == 0) {
-				printf("|  %s \n", ascii);
-			} else if (i+1 == size) {
-				ascii[(i+1) % 16] = '\0';
-				if ((i+1) % 16 <= 8) {
-					printf(" ");
-				}
-				for (j = (i+1) % 16; j < 16; ++j) {
-					printf("   ");
-				}
-				printf("|  %s \n", ascii);
-			}
-		}
-	}
-}
+#define eprintf(...) fprintf (stderr, __VA_ARGS__)
 
-typedef struct { 
-  unsigned char* data;
-  unsigned int size;
-  unsigned int addr;
-} section;
-
-void free_section(section *s) {
-    free(s->data);
-    free(s);
-}
-
-section* read_section(int fd, Elf_Scn* scn) {
-    section *s;
-    GElf_Shdr shdr;
-
-    if(gelf_getshdr(scn , &shdr) != &shdr) {
-        err(EX_DATAERR, "Could not get section data");
-    }
-
-    unsigned char* section_data = calloc(1, shdr.sh_size);
-
-    if (shdr.sh_type == SHT_NOBITS)
-        memset(section_data, 1, shdr.sh_size);
-    else {
-        if (lseek(fd, shdr.sh_offset, SEEK_SET) == -1) {
-            free(section_data);
-            err(EX_SOFTWARE, "Could not seek");
-        }
-
-        read(fd, section_data, shdr.sh_size);
-    }
-
-    s = malloc(sizeof(section*));
-    s->data = section_data;
-    s->size = shdr.sh_size;
-    s->addr = shdr.sh_offset;
-
-    return s;
-}
-
-section* read_section_by_name(Elf* elf, int fd, const char* section_name) {
-
-    Elf_Scn *scn = NULL;
-    GElf_Shdr shdr;
-
-    // retrieve index of section name string table
-    size_t shstrndx;
-    if (elf_getshdrstrndx(elf, &shstrndx) != 0) {
-        err(EX_DATAERR, "Could not find section name section");
-    }
-
-
-    // iterate over sections searching by name
-    while ((scn = elf_nextscn(elf, scn)) != NULL) {
-        if (gelf_getshdr(scn , &shdr) != &shdr) {
-            err(EX_DATAERR, "Could not get section data");
-        }
-        const char* scn_name = elf_strptr(elf, shstrndx , shdr.sh_name);
-        if (scn_name == NULL) {
-            err(EX_DATAERR, "Could not get section name");
-        }
-        if (strcmp(scn_name, section_name) == 0)
-            return read_section(fd, scn);
-    }
-
-    err(EX_SOFTWARE, "Section %s not found", section_name);
+void print_help(char **argv) {
+    printf("Usage: %s [-e|--exclude] file section\n", argv[0]);
 }
 
 int main(int argc, char **argv) {
-    int fd;
-    Elf *e;
-
-    if (argc != 3)
-        errx(EX_USAGE, "usage: %s file section", argv[0]);
-
-    if (elf_version(EV_CURRENT) == EV_NONE)
-        errx(EX_SOFTWARE, "ELF library initialization failed : %s ", elf_errmsg(-1));
-
-    if ((fd = open(argv[1], O_RDONLY, 0)) < 0)
-        err(EX_NOINPUT , "open %s failed", argv[1]);
-
-    if ((e = elf_begin(fd, ELF_C_READ, NULL)) == NULL)
-        errx(EX_SOFTWARE , "elf_begin() failed: %s", elf_errmsg(-1));
-
-    section *s = read_section_by_name(e, fd, argv[2]);
     
-    dump_hex(s->data, s->size);
+    // argument parsing
+    int c;
+    int flag_exclude = 0;
 
-    free_section(s);
+    while((c = getopt(argc, argv, "pe")) != -1) {
+        switch(c) {
+            case 'e':
+                flag_exclude = 1;
+                break;
+            case '?':
+                print_help(argv);
+                return 1;
+            default:
+                print_help(argv);
+                return 1;
+        }
+    }
 
-    return EXIT_SUCCESS;
+    if( (argc - optind) < 2) {
+        print_help(argv);
+        return 1;
+    }
+
+    // dump section contents
+    char *buf;
+    char *name;
+    int fd;
+    size_t shrnum;
+    size_t shstrndx;
+    Elf *elf;
+    Elf_Data *data = NULL;
+    Elf_Scn *scn = NULL;
+    GElf_Shdr shdr;
+
+    // initialize libelf and exit if any error
+
+    if(elf_version(EV_CURRENT) == EV_NONE){
+        eprintf("Error while initializing libelf\n");
+        return 1;
+    }
+
+    if((fd = open(argv[optind], O_RDONLY, 0)) < 0){
+        perror("Error");
+        return 1;
+    }
+
+    if((elf = elf_begin(fd, ELF_C_READ, NULL)) == NULL){
+        eprintf("Error while loading elf\n");
+        return 1;
+    }
+
+    if(elf_getshdrstrndx(elf, &shstrndx) != 0){
+        eprintf("Failed retrieving section index of section header string table\n");
+        return 1;
+    }
+
+    elf_getshdrnum(elf, &shrnum);
+
+    // keep section order specified in argv
+    for(int i = optind + 1; i < argc; i++) {
+        while((scn = elf_nextscn(elf, scn)) != NULL) {
+            
+            gelf_getshdr(scn, &shdr);
+            name = elf_strptr(elf, shstrndx, shdr.sh_name);
+            
+            if(! (strncmp(name, argv[i], sizeof(argv[i]))) ^ flag_exclude) {
+                lseek(fd, shdr.sh_offset, SEEK_SET);
+                buf = malloc(shdr.sh_size);
+
+                read(fd, buf, shdr.sh_size);
+                write(1, buf, shdr.sh_size);
+
+                free(buf);
+            }
+        }
+    }
+
+    elf_end(elf);
+
+    return 0;
 }
