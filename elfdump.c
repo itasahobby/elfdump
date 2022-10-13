@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
             gelf_getshdr(scn, &shdr);
             name = elf_strptr(elf, shstrndx, shdr.sh_name);
             
-            if(! (strncmp(name, argv[i], sizeof(argv[i]))) ^ flag_exclude) {
+            if(! (strcmp(name, argv[i])) ^ flag_exclude) {
                 
                 buf = calloc(shdr.sh_size, sizeof(char));
                 if(shdr.sh_type != SHT_NOBITS) {
