@@ -81,12 +81,14 @@ int main(int argc, char **argv) {
             name = elf_strptr(elf, shstrndx, shdr.sh_name);
             
             if(! (strncmp(name, argv[i], sizeof(argv[i]))) ^ flag_exclude) {
-                lseek(fd, shdr.sh_offset, SEEK_SET);
-                buf = malloc(shdr.sh_size);
+                
+                buf = calloc(shdr.sh_size, sizeof(char));
+                if(shdr.sh_type != SHT_NOBITS) {
+                    lseek(fd, shdr.sh_offset, SEEK_SET);
+                    read(fd, buf, shdr.sh_size);
+                }
 
-                read(fd, buf, shdr.sh_size);
                 write(1, buf, shdr.sh_size);
-
                 free(buf);
             }
         }
